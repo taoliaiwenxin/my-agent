@@ -1,0 +1,58 @@
+# AI Agent Core 默认配置文件
+
+# 模型配置
+models:
+  claude-sonnet:
+    name: "Claude 3.5 Sonnet"
+    type: anthropic
+    model: claude-3-5-sonnet-20241022
+    apiKey: ${ANTHROPIC_API_KEY}
+    isDefault: true
+    limits:
+      rpm: 50
+      dailyCost: 10.0
+    capabilities:
+      vision: true
+      tools: true
+      streaming: true
+
+# 模型选择策略
+selection:
+  defaultStrategy: default
+
+# 故障切换配置
+fallback:
+  enabled: true
+  maxRetries: 2
+
+# 记忆配置
+memory:
+  workingMemoryMax: 10        # 保留最近多少轮对话
+  tokenBudget: 100000         # 每会话 token 上限
+  compressionThreshold: 0.8   # 触发压缩的阈值
+
+# 安全配置
+security:
+  allowedPaths:
+    - ./workspace
+  permissionLevel: write      # read/write/execute
+  allowNetwork: true
+  dangerousPatterns:
+    - "rm -rf /"
+    - "rm -rf /*"
+    - "> /dev/sda"
+
+# Agent 配置
+agent:
+  maxIterations: 50           # 单任务最大迭代次数
+  timeoutMs: 300000           # 单任务超时时间（5分钟）
+  enableHumanConfirm: true    # 是否启用人工确认
+
+# 数据库配置
+database:
+  path: ./storage/agent.db
+
+# 日志配置
+logging:
+  level: info                 # debug/info/warn/error
+  format: text                # text/json
