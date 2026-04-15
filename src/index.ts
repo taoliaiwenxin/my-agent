@@ -18,5 +18,18 @@ export function healthCheck(): { status: string; version: string } {
   };
 }
 
+// ==================== 类型导出 ====================
+export * from './types';
+
+// ==================== 配置模块 ====================
+export { ConfigLoader } from './config/ConfigLoader';
+
+// ==================== 记忆模块 ====================
+export { SQLiteClient, createSQLiteClient } from './memory/SQLiteClient';
+export { Sessions } from './memory/Sessions';
+export { Steps } from './memory/Steps';
+export { WorkingMemory } from './memory/WorkingMemory';
+export { MemorySystem } from './memory/MemorySystem';
+
 // 启动时打印信息
 console.log(`AI Agent Core v${VERSION} loaded`);

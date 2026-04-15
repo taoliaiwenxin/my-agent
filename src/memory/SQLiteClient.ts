@@ -149,7 +149,8 @@ export class SQLiteClient {
         session_id TEXT PRIMARY KEY,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         task_description TEXT,
-        final_status TEXT
+        final_status TEXT,
+        final_result TEXT
       )
     `);
 
