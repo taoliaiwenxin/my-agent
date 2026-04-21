@@ -24,3 +24,14 @@ export {
   createObservationGenerator,
 } from './ObservationGenerator';
 export type { ObservationOptions } from './ObservationGenerator';
+
+export { StateManager, createStateManager } from './StateManager';
+export type {
+  AgentState,
+  StateChangeEvent,
+  StateSnapshot,
+  SessionExecutionState,
+} from './StateManager';
+
+export { Agent, createAgent } from './Agent';
+export type { AgentOptions, TaskResult, AgentEvent } from './Agent';
