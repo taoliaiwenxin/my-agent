@@ -15,6 +15,7 @@ import inquirer from 'inquirer';
 import { Agent, createAgent } from '../core/Agent';
 import { LLMClient } from '../llm/LLMClient';
 import { ConfigLoader } from '../config/ConfigLoader';
+import { createModelsCommand } from './commands/models';
 
 const program = new Command();
 
@@ -22,6 +23,9 @@ program
   .name('ai-agent')
   .description('AI Agent Core - 智能任务执行代理')
   .version('1.0.0');
+
+// 注册子命令
+program.addCommand(createModelsCommand());
 
 program
   .argument('[task]', '要执行的任务描述')
@@ -90,7 +94,7 @@ program
         await agent.initialize();
         spinner.text = '正在执行任务...';
 
-        const result = await agent.runTask(taskDescription);
+        const result = await agent.runTask(taskDescription!);
 
         spinner.stop();
 

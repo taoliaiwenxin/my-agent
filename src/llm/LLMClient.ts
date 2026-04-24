@@ -38,6 +38,8 @@
 
 import { ModelRegistry } from './ModelRegistry';
 import { createAnthropicProvider } from './providers/AnthropicProvider';
+import { createOpenAIProvider } from './providers/OpenAIProvider';
+import { ModelSelector, SelectionCriteria } from './ModelSelector';
 import {
   LLMProvider,
   Message,
@@ -127,6 +129,9 @@ export class LLMClient {
   /** 调用历史记录（内存缓存） */
   private callLogs: LLMCallLog[] = [];
 
+  /** 模型选择器 */
+  private selector: ModelSelector;
+
   /** 故障切换配置 */
   private fallbackConfig: FallbackConfig;
 
@@ -139,6 +144,7 @@ export class LLMClient {
     fallbackConfig?: Partial<FallbackConfig>;
   }) {
     this.registry = new ModelRegistry();
+    this.selector = new ModelSelector(this.registry);
     this.fallbackConfig = {
       ...DEFAULT_FALLBACK_CONFIG,
       ...options?.fallbackConfig,
@@ -153,6 +159,7 @@ export class LLMClient {
    */
   private setupFactories(): void {
     this.registry.registerFactory('anthropic', createAnthropicProvider);
+    this.registry.registerFactory('openai', createOpenAIProvider);
   }
 
   /**
@@ -165,6 +172,19 @@ export class LLMClient {
     return this.registry.addProvider({
       ...config,
       type: 'anthropic',
+    });
+  }
+
+  /**
+   * 注册 OpenAI Provider
+   *
+   * @param config - Provider 配置
+   * @returns 注册的 Provider 实例
+   */
+  registerOpenAIProvider(config: Omit<ProviderConfig, 'type'>): LLMProvider {
+    return this.registry.addProvider({
+      ...config,
+      type: 'openai',
     });
   }
 
@@ -265,6 +285,23 @@ export class LLMClient {
   }
 
   /**
+   * 使用模型选择器自动选择模型进行聊天
+   *
+   * @param criteria - 选择条件
+   * @param messages - 消息列表
+   * @param options - 聊天选项
+   * @returns 聊天响应
+   */
+  async chatWithSelection(
+    criteria: SelectionCriteria,
+    messages: Message[],
+    options?: ChatOptions
+  ): Promise<ChatResponse> {
+    const provider = this.selector.select(criteria, 'task_based');
+    return this.executeWithFallback(() => provider.chat(messages, options));
+  }
+
+  /**
    * 带重试的聊天
    *
    * @param messages - 消息列表
@@ -344,6 +381,15 @@ export class LLMClient {
    */
   getRegistry(): ModelRegistry {
     return this.registry;
+  }
+
+  /**
+   * 获取模型选择器
+   *
+   * @returns ModelSelector 实例
+   */
+  getSelector(): ModelSelector {
+    return this.selector;
   }
 
   /**
