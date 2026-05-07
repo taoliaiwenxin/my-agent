@@ -11,11 +11,11 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import inquirer from 'inquirer';
 import { Agent, createAgent } from '../core/Agent';
 import { LLMClient } from '../llm/LLMClient';
 import { ConfigLoader } from '../config/ConfigLoader';
 import { createModelsCommand } from './commands/models';
+import { InteractiveSession } from './InteractiveSession';
 
 const program = new Command();
 
@@ -32,6 +32,7 @@ program
   .option('-p, --permission <level>', '权限级别 (read/write/execute)', 'execute')
   .option('-d, --db <path>', '数据库路径')
   .option('-m, --max-iterations <n>', '最大迭代次数', '20')
+  .option('-i, --interactive', '进入交互模式')
   .option('--no-stream', '禁用流式输出')
   .action(async (task: string | undefined, options) => {
     try {
@@ -58,20 +59,6 @@ program
         apiKey,
       });
 
-      // 如果没有提供任务，进入交互模式
-      let taskDescription = task;
-      if (!taskDescription) {
-        const answers = await inquirer.prompt([
-          {
-            type: 'input',
-            name: 'task',
-            message: '请输入要执行的任务:',
-            validate: (input: string) => input.trim().length > 0 || '任务描述不能为空',
-          },
-        ]);
-        taskDescription = answers.task;
-      }
-
       // 创建 Agent
       const agent = createAgent({
         dbPath,
@@ -84,17 +71,26 @@ program
         },
       });
 
-      // 设置事件监听
+      // 判断模式：有 task 参数 → 单次任务；无参数或 -i → 交互模式
+      const isInteractive = options.interactive || !task;
+
+      if (isInteractive) {
+        // 交互模式
+        const session = new InteractiveSession(agent);
+        await session.start(task || undefined);
+        return;
+      }
+
+      // 单次任务模式
       setupEventListeners(agent);
 
-      // 执行
       const spinner = ora('正在初始化 Agent...').start();
 
       try {
         await agent.initialize();
         spinner.text = '正在执行任务...';
 
-        const result = await agent.runTask(taskDescription!);
+        const result = await agent.runTask(task);
 
         spinner.stop();
 

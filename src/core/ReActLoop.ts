@@ -194,17 +194,17 @@ export class ReActLoop {
   }
 
   /**
-   * 运行 ReAct 循环
+   * 继续 ReAct 循环（用于交互模式）
+   *
+   * 与 `run()` 共享核心循环逻辑，但不添加新的用户消息（由调用者提前添加）。
    *
    * @param sessionId - 会话 ID
    * @param workingMemory - 工作记忆实例
-   * @param taskDescription - 任务描述
    * @returns 执行结果
    */
-  public async run(
+  public async continue(
     sessionId: string,
-    workingMemory: WorkingMemory,
-    taskDescription: string
+    workingMemory: WorkingMemory
   ): Promise<ReActLoopResult> {
     if (this.isRunning) {
       throw new Error('ReActLoop is already running');
@@ -219,18 +219,6 @@ export class ReActLoop {
     let error: string | undefined;
 
     try {
-      // 初始化系统提示
-      const systemPrompt = buildReActSystemPrompt({
-        taskDescription,
-        tools: this.toolExecutor.getAllTools(),
-        maxSteps: this.config.maxIterations,
-      });
-
-      // 设置工作记忆的系统提示
-      if (!workingMemory.getMessages().some((m) => m.role === 'system')) {
-        workingMemory.addSystemMessage(systemPrompt);
-      }
-
       // 主循环
       for (let iteration = 1; iteration <= this.config.maxIterations; iteration++) {
         this.emit('iteration:start', iteration, { iteration });
@@ -249,6 +237,13 @@ export class ReActLoop {
           // ACT: 将思考转换为动作
           const action = this.thoughtParser.toAgentAction(thought);
           this.emit('act', iteration, { action });
+
+          // 防御：如果 LLM 没有给出工具调用，将思考内容作为最终结果
+          if (!action.toolName) {
+            finalResult = thought.thought || thought.result || '任务完成';
+            this.emit('complete', iteration, { result: finalResult });
+            break;
+          }
 
           // EXECUTE: 执行工具
           const executionResult = await this.execute(action, sessionId);
@@ -314,7 +309,7 @@ export class ReActLoop {
           this.emit('error', iteration, { error });
 
           // 记录失败步骤
-          await this.recordStep(
+          const failedStep = await this.recordStep(
             sessionId,
             iteration,
             { thought: '', action: '', parameters: {}, isComplete: false } as ParsedThought,
@@ -322,6 +317,7 @@ export class ReActLoop {
             this.observationGenerator.createErrorObservation('error', error),
             'failed'
           );
+          this.steps.push(failedStep);
 
           // 如果是致命错误，终止循环
           if (this.isFatalError(error)) {
@@ -351,6 +347,34 @@ export class ReActLoop {
       error,
       tokenUsage: { ...this.tokenUsage },
     };
+  }
+
+  /**
+   * 运行 ReAct 循环
+   *
+   * @param sessionId - 会话 ID
+   * @param workingMemory - 工作记忆实例
+   * @param taskDescription - 任务描述
+   * @returns 执行结果
+   */
+  public async run(
+    sessionId: string,
+    workingMemory: WorkingMemory,
+    taskDescription: string
+  ): Promise<ReActLoopResult> {
+    // 初始化系统提示
+    const systemPrompt = buildReActSystemPrompt({
+      taskDescription,
+      tools: this.toolExecutor.getAllTools(),
+      maxSteps: this.config.maxIterations,
+    });
+
+    // 设置工作记忆的系统提示
+    if (!workingMemory.getMessages().some((m) => m.role === 'system')) {
+      workingMemory.addSystemMessage(systemPrompt);
+    }
+
+    return this.continue(sessionId, workingMemory);
   }
 
   /**

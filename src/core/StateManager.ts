@@ -146,7 +146,7 @@ export class StateManager {
     idle: ['initializing', 'shutting_down'],
     initializing: ['planning', 'running', 'failed', 'idle'],
     planning: ['running', 'failed', 'idle'],
-    running: ['paused', 'completed', 'failed', 'recovering', 'shutting_down'],
+    running: ['paused', 'completed', 'failed', 'recovering', 'shutting_down', 'idle'],
     paused: ['running', 'failed', 'shutting_down'],
     recovering: ['running', 'failed', 'idle'],
     completed: ['idle', 'shutting_down'],

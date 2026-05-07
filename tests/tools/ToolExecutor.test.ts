@@ -125,6 +125,18 @@ describe('ToolExecutor', () => {
     });
 
     /**
+     * 测试：执行空名称工具
+     */
+    it('执行空名称工具应该抛出错误', async () => {
+      const executor = createExecutor();
+      executor.registerDefaultTools();
+
+      await expect(
+        executor.execute('', {})
+      ).rejects.toThrow('工具未找到: (空)');
+    });
+
+    /**
      * 测试：执行文件读取
      */
     it('应该执行 file_read 工具', async () => {

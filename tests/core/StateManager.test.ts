@@ -111,9 +111,9 @@ describe('StateManager', () => {
       stateManager.transitionTo('initializing');
       stateManager.transitionTo('running');
 
-      // running 不能直接到 idle
-      expect(stateManager.transitionTo('idle')).toBe(false);
-      expect(stateManager.getState()).toBe('running');
+      // running 可以到 idle（交互模式需要每轮回到 idle）
+      expect(stateManager.transitionTo('idle')).toBe(true);
+      expect(stateManager.getState()).toBe('idle');
     });
 
     /**

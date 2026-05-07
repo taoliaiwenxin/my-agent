@@ -16,12 +16,14 @@ import { ReActLoop } from './ReActLoop';
 import { StateManager } from './StateManager';
 import { PermissionManager } from '../security/PermissionManager';
 import { SecurityPolicy } from '../security/SecurityPolicy';
+import { buildReActSystemPrompt } from '../llm/prompts/react';
 import {
   AgentConfig,
   PermissionLevel,
   Session,
   Step,
 } from '../types';
+import { ReActLoopResult } from './ReActLoop';
 
 /**
  * Agent 配置选项
@@ -84,7 +86,14 @@ export interface TaskResult {
  */
 export interface AgentEvent {
   /** 事件类型 */
-  type: 'session:start' | 'session:end' | 'step' | 'error' | 'state:change';
+  type:
+    | 'session:start'
+    | 'session:end'
+    | 'step'
+    | 'error'
+    | 'state:change'
+    | 'interactive:message'
+    | 'interactive:response';
 
   /** 会话 ID */
   sessionId: string;
@@ -137,6 +146,13 @@ export class Agent {
 
   /** 事件监听器 */
   private eventListeners: AgentEventListener[] = [];
+
+  /** 交互模式上下文 */
+  private interactiveContext?: {
+    sessionId: string;
+    workingMemory: WorkingMemory;
+    isActive: boolean;
+  };
 
   /** 是否已初始化 */
   private initialized = false;
@@ -484,6 +500,146 @@ export class Agent {
     if (index > -1) {
       this.eventListeners.splice(index, 1);
     }
+  }
+
+  /**
+   * 启动交互会话
+   *
+   * 创建新会话并初始化交互上下文，保持运行状态等待用户输入。
+   *
+   * @param taskDescription - 会话描述（可选，默认为'交互式会话'）
+   * @returns 会话 ID
+   */
+  public async startInteractiveSession(taskDescription?: string): Promise<string> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+
+    const desc = taskDescription || '交互式会话';
+
+    // 创建会话
+    const { session, workingMemory } = await this.memorySystem.createSession(desc);
+
+    // 设置系统提示词
+    const systemPrompt = buildReActSystemPrompt({
+      taskDescription: desc,
+      tools: this.toolExecutor.getAllTools(),
+      maxSteps: this.config.maxIterations,
+    });
+    workingMemory.addSystemMessage(systemPrompt);
+
+    // 初始化状态
+    await this.stateManager.startSession(session.sessionId, desc);
+    this.stateManager.transitionTo('idle', '交互会话已初始化');
+
+    // 交互模式下启用人工确认
+    this.toolExecutor.updateConfig({ enableHumanConfirm: true });
+
+    // 保存交互上下文
+    this.interactiveContext = {
+      sessionId: session.sessionId,
+      workingMemory,
+      isActive: true,
+    };
+
+    this.emit('interactive:message', session.sessionId, {
+      type: 'session_started',
+      taskDescription: desc,
+    });
+
+    return session.sessionId;
+  }
+
+  /**
+   * 发送交互消息
+   *
+   * 将用户消息添加到工作记忆并继续 ReAct 循环。
+   *
+   * @param message - 用户消息
+   * @returns ReAct 循环结果
+   * @throws Error 如果交互会话未激活
+   */
+  public async sendInteractiveMessage(message: string): Promise<ReActLoopResult> {
+    if (!this.interactiveContext?.isActive) {
+      throw new Error('交互会话未激活，请先调用 startInteractiveSession()');
+    }
+
+    const { sessionId, workingMemory } = this.interactiveContext;
+
+    // 添加用户消息
+    workingMemory.addUserMessage(message);
+    this.emit('interactive:message', sessionId, { message });
+
+    // 进入运行状态
+    this.stateManager.transitionTo('running', '处理交互消息');
+
+    try {
+      if (!this.reactLoop) {
+        throw new Error('ReAct 循环未初始化');
+      }
+
+      const result = await this.reactLoop.continue(sessionId, workingMemory);
+
+      // 回到 idle 等待下一轮输入
+      this.stateManager.transitionTo('idle', '交互消息处理完成');
+
+      this.emit('interactive:response', sessionId, { result });
+
+      return result;
+    } catch (error) {
+      // 出错也回到 idle
+      this.stateManager.transitionTo('idle', '交互消息处理出错');
+      throw error;
+    }
+  }
+
+  /**
+   * 结束交互会话
+   *
+   * 持久化会话历史并清理交互上下文。
+   */
+  public async endInteractiveSession(): Promise<void> {
+    if (!this.interactiveContext) {
+      return;
+    }
+
+    const { sessionId } = this.interactiveContext;
+
+    // 结束会话持久化
+    await this.memorySystem.endSession(sessionId, 'completed', '交互会话结束');
+
+    this.emit('interactive:message', sessionId, { type: 'session_ended' });
+
+    // 恢复人工确认设置
+    this.toolExecutor.updateConfig({ enableHumanConfirm: false });
+
+    this.interactiveContext = undefined;
+  }
+
+  /**
+   * 清空交互上下文
+   *
+   * 清空工作记忆中的对话历史，保留系统提示词。
+   */
+  public clearInteractiveContext(): void {
+    if (!this.interactiveContext) {
+      return;
+    }
+
+    this.interactiveContext.workingMemory.clear(true);
+
+    this.emit('interactive:message', this.interactiveContext.sessionId, {
+      type: 'context_cleared',
+    });
+  }
+
+  /**
+   * 检查是否处于交互模式
+   *
+   * @returns 是否处于活跃的交互会话中
+   */
+  public isInteractive(): boolean {
+    return this.interactiveContext?.isActive ?? false;
   }
 
   /**

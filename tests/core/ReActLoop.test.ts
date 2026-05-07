@@ -265,6 +265,29 @@ describe('ReActLoop', () => {
 
       await runPromise;
     });
+
+    it('当 LLM 没有给出工具调用时，应将思考内容作为最终结果', async () => {
+      // 模拟 LLM 返回普通文本而不是工具调用
+      const mockResponse: ChatResponse = {
+        content: '我来帮你读取 package.json 文件',
+        usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
+        model: 'test-model',
+        latencyMs: 100,
+      };
+
+      mockLLMClient.chatWithTools.mockResolvedValue(mockResponse);
+
+      const result = await loop.run(
+        'session-1',
+        mockWorkingMemory as unknown as WorkingMemory,
+        '读取 package.json'
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.result).toBe('我来帮你读取 package.json 文件');
+      // 不应该尝试执行任何工具
+      expect(mockToolExecutor.execute).not.toHaveBeenCalled();
+    });
   });
 
   describe('事件系统', () => {

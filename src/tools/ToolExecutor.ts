@@ -34,6 +34,7 @@
  * @see {@link implementations/TerminateTool.ts}
  */
 
+import inquirer from 'inquirer';
 import { ToolRegistry } from './ToolRegistry';
 import { FileReadTool } from './implementations/FileReadTool';
 import { FileWriteTool } from './implementations/FileWriteTool';
@@ -58,6 +59,8 @@ interface ToolExecutorConfig {
   sessionId?: string;
   /** 步骤 ID（可选） */
   stepId?: string;
+  /** 是否启用人工确认（修改性操作前提示） */
+  enableHumanConfirm?: boolean;
 }
 
 /**
@@ -222,11 +225,28 @@ export class ToolExecutor {
   ): Promise<ToolExecutionResult> {
     const startTime = Date.now();
 
+    // 防御空工具名
+    if (!toolName || typeof toolName !== 'string') {
+      throw new ToolNotFoundError(toolName || '(空)');
+    }
+
     // 查找工具实现
     const implementation = this.implementations.get(toolName);
 
     if (!implementation) {
       throw new ToolNotFoundError(toolName);
+    }
+
+    // 检查是否需要人工确认（修改性操作）
+    if (this.config.enableHumanConfirm && this.isDestructiveOperation(toolName, params)) {
+      const confirmed = await this.confirmAction(toolName, params);
+      if (!confirmed) {
+        return {
+          success: false,
+          error: '用户拒绝了该操作',
+          executionTimeMs: Date.now() - startTime
+        };
+      }
     }
 
     // 构建执行上下文
@@ -363,5 +383,64 @@ export class ToolExecutor {
    */
   public getConfig(): ToolExecutorConfig {
     return { ...this.config };
+  }
+
+  /**
+   * 检测是否为修改性操作
+   *
+   * @param toolName - 工具名称
+   * @param params - 工具参数
+   * @returns 是否需要人工确认
+   */
+  private isDestructiveOperation(toolName: string, params: unknown): boolean {
+    if (toolName === 'file_write') {
+      return true;
+    }
+
+    if (toolName === 'shell') {
+      const shellParams = params as { command?: string } | undefined;
+      const command = shellParams?.command || '';
+      const destructivePatterns = [
+        />\s/,           // 输出重定向 >
+        />>\s/,          // 追加重定向 >>
+        /\brm\b/,        // 删除
+        /\bmv\b/,        // 移动
+        /\bcp\b/,        // 复制（覆盖）
+        /\bchmod\b/,     // 修改权限
+        /\bchown\b/,     // 修改所有者
+        /\bdd\b/,        // 磁盘写入
+        /\bmkfs\b/,      // 格式化
+      ];
+      return destructivePatterns.some((pattern) => pattern.test(command));
+    }
+
+    return false;
+  }
+
+  /**
+   * 提示用户确认操作
+   *
+   * @param toolName - 工具名称
+   * @param params - 工具参数
+   * @returns 用户是否确认
+   */
+  private async confirmAction(toolName: string, params: unknown): Promise<boolean> {
+    const paramStr = params ? JSON.stringify(params).substring(0, 200) : '{}';
+    const message = `执行 ${toolName}(${paramStr})?`;
+
+    try {
+      const { confirmed } = await inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'confirmed',
+          message,
+          default: false,
+        },
+      ]);
+      return confirmed;
+    } catch {
+      // 如果 inquirer 失败（如非 TTY 环境），默认拒绝
+      return false;
+    }
   }
 }

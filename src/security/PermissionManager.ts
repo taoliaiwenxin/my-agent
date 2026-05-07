@@ -7,6 +7,7 @@
  * @version 1.0.0
  */
 
+import inquirer from 'inquirer';
 import { SecurityPolicy } from './SecurityPolicy';
 import {
   PermissionLevel,
@@ -342,6 +343,35 @@ export class PermissionManager {
    */
   public addDangerousPattern(pattern: RegExp): void {
     this.policy.addDangerousPattern(pattern);
+  }
+
+  /**
+   * 提示用户确认操作
+   *
+   * 在执行修改性操作前，使用 inquirer 提示用户确认。
+   *
+   * @param toolName - 工具名称
+   * @param params - 工具参数
+   * @returns 用户是否确认执行
+   */
+  public async confirmAction(toolName: string, params: unknown): Promise<boolean> {
+    const paramStr = params ? JSON.stringify(params).substring(0, 200) : '{}';
+    const message = `执行 ${toolName}(${paramStr})?`;
+
+    try {
+      const { confirmed } = await inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'confirmed',
+          message,
+          default: false,
+        },
+      ]);
+      return confirmed;
+    } catch {
+      // 如果 inquirer 失败（如非 TTY 环境），默认拒绝
+      return false;
+    }
   }
 }
 

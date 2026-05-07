@@ -417,6 +417,189 @@ describe('Agent', () => {
     });
   });
 
+  describe('交互模式', () => {
+    /**
+     * 测试：启动交互会话
+     */
+    it('应该能启动交互会话', async () => {
+      const agent = createTestAgent();
+
+      const sessionId = await agent.startInteractiveSession('测试交互');
+
+      expect(sessionId).toBeDefined();
+      expect(agent.isInteractive()).toBe(true);
+      expect(agent.getStatus().state).toBe('idle');
+
+      await agent.endInteractiveSession();
+      await agent.shutdown();
+    });
+
+    /**
+     * 测试：发送交互消息
+     */
+    it('应该能发送交互消息并获取响应', async () => {
+      const agent = createTestAgent();
+
+      mockLLMClient.chatWithTools.mockResolvedValue({
+        content: '我来终止',
+        usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+        model: 'test-model',
+        latencyMs: 100,
+        toolCalls: [
+          {
+            id: 'call-1',
+            name: 'terminate',
+            arguments: { status: 'success', message: '完成' },
+          },
+        ],
+      });
+
+      await agent.startInteractiveSession('测试交互');
+      const result = await agent.sendInteractiveMessage('你好');
+
+      expect(result.success).toBe(true);
+      expect(agent.getStatus().state).toBe('idle');
+
+      await agent.endInteractiveSession();
+      await agent.shutdown();
+    });
+
+    /**
+     * 测试：多轮交互保持上下文
+     */
+    it('应该支持多轮交互', async () => {
+      const agent = createTestAgent();
+
+      mockLLMClient.chatWithTools.mockResolvedValue({
+        content: '响应',
+        usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+        model: 'test-model',
+        latencyMs: 100,
+        toolCalls: [
+          {
+            id: 'call-1',
+            name: 'terminate',
+            arguments: { status: 'success', message: '完成' },
+          },
+        ],
+      });
+
+      await agent.startInteractiveSession('多轮测试');
+
+      const result1 = await agent.sendInteractiveMessage('消息1');
+      expect(result1.success).toBe(true);
+      expect(agent.getStatus().state).toBe('idle');
+
+      const result2 = await agent.sendInteractiveMessage('消息2');
+      expect(result2.success).toBe(true);
+      expect(agent.getStatus().state).toBe('idle');
+
+      await agent.endInteractiveSession();
+      await agent.shutdown();
+    });
+
+    /**
+     * 测试：未激活时发送消息应该抛出错误
+     */
+    it('未激活时发送消息应该抛出错误', async () => {
+      const agent = createTestAgent();
+
+      await expect(agent.sendInteractiveMessage('你好')).rejects.toThrow(
+        '交互会话未激活'
+      );
+
+      await agent.shutdown();
+    });
+
+    /**
+     * 测试：清空交互上下文
+     */
+    it('应该能清空交互上下文', async () => {
+      const agent = createTestAgent();
+
+      mockLLMClient.chatWithTools.mockResolvedValue({
+        content: '响应',
+        usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+        model: 'test-model',
+        latencyMs: 100,
+        toolCalls: [
+          {
+            id: 'call-1',
+            name: 'terminate',
+            arguments: { status: 'success', message: '完成' },
+          },
+        ],
+      });
+
+      await agent.startInteractiveSession('清空测试');
+      await agent.sendInteractiveMessage('消息');
+
+      // 清空上下文
+      agent.clearInteractiveContext();
+
+      // 清空后应该仍然可以交互
+      const result = await agent.sendInteractiveMessage('新消息');
+      expect(result.success).toBe(true);
+
+      await agent.endInteractiveSession();
+      await agent.shutdown();
+    });
+
+    /**
+     * 测试：交互模式事件
+     */
+    it('应该发送交互模式事件', async () => {
+      const agent = createTestAgent();
+
+      const events: Array<{ type: string; data?: unknown }> = [];
+      agent.onEvent((event) => {
+        events.push({ type: event.type, data: event.data });
+      });
+
+      mockLLMClient.chatWithTools.mockResolvedValue({
+        content: '完成',
+        usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+        model: 'test-model',
+        latencyMs: 100,
+        toolCalls: [
+          {
+            id: 'call-1',
+            name: 'terminate',
+            arguments: { status: 'success', message: '完成' },
+          },
+        ],
+      });
+
+      await agent.startInteractiveSession('事件测试');
+      expect(
+        events.some((e) => e.type === 'interactive:message')
+      ).toBe(true);
+
+      await agent.sendInteractiveMessage('测试');
+      expect(
+        events.some((e) => e.type === 'interactive:response')
+      ).toBe(true);
+
+      await agent.endInteractiveSession();
+      await agent.shutdown();
+    });
+
+    /**
+     * 测试：结束交互会话后状态重置
+     */
+    it('结束交互会话后应该重置状态', async () => {
+      const agent = createTestAgent();
+
+      await agent.startInteractiveSession('结束测试');
+      expect(agent.isInteractive()).toBe(true);
+
+      await agent.endInteractiveSession();
+      expect(agent.isInteractive()).toBe(false);
+
+      await agent.shutdown();
+    });
+  });
+
   describe('便捷函数', () => {
     /**
      * 测试：createAgent
